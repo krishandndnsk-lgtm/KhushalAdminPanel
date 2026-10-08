@@ -1,20 +1,30 @@
 --[[
-    KHUSHAL ADMIN PANEL | CHILLI HUB EDITION
-    Wide Clean Layout + Clear 'X' Button on Command Bar
+    ============================================================================
+    KHUSHAL ADMIN PANEL | CHILLI HUB EDITION (REFINED EXECUTOR ENGINE)
+    ============================================================================
 ]]
 
+-- 1. PROTECTED PREVIOUS INSTANCE TEARDOWN
+if _G.KhushalAdminCleanup and type(_G.KhushalAdminCleanup) == "function" then
+    pcall(_G.KhushalAdminCleanup)
+end
+
+local connections = {}
+local function trackConn(conn)
+    table.insert(connections, conn)
+    return conn
+end
+
+-- 2. SERVICES & CORE VARIABLES
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-
-if PlayerGui:FindFirstChild("KhushalChilliHubFullUI") then
-    PlayerGui.KhushalChilliHubFullUI:Destroy()
-end
 
 local Yalat = {
     Commands = {},
@@ -22,27 +32,58 @@ local Yalat = {
     SavedLocation = nil,
     UIElements = {},
     OriginalCollisionMap = {},
+    SpawnedTools = {},
+    Baseline = {
+        walkSpeed = 16,
+        jumpPower = 50,
+        useJumpPower = true
+    },
     State = {
-        speed = nil, jump = nil, noclip = false, god = false, 
-        spin = false, spinSpeed = 10, shaderActive = false, 
-        waterActive = false, flyActive = false, holdingSpeedCoil = false
+        speed = nil,
+        jump = nil,
+        noclip = false,
+        god = false, 
+        spin = false,
+        spinSpeed = 10,
+        shaderActive = false, 
+        waterActive = false,
+        flyActive = false,
+        flySpeed = 50,
+        holdingSpeedCoil = false
     }
 }
 
-local function getChar() return LocalPlayer.Character end
+local function getChar() 
+    return LocalPlayer.Character 
+end
+
 local function getHum()
     local c = LocalPlayer.Character
     return c and c:FindFirstChildOfClass("Humanoid")
 end
+
 local function getRoot()
     local c = LocalPlayer.Character
     return c and c:FindFirstChild("HumanoidRootPart")
 end
 
+local function findHumanoidFromHit(hitPart)
+    if not hitPart then return nil end
+    local current = hitPart
+    while current and current ~= Workspace do
+        local hum = current:FindFirstChildOfClass("Humanoid")
+        if hum then return hum end
+        current = current.Parent
+    end
+    return nil
+end
+
+-- 3. UI STYLING & NOTIFICATION SYSTEM
 local function corner(inst, r)
     local c = Instance.new("UICorner")
     c.CornerRadius = UDim.new(0, r or 8)
     c.Parent = inst
+    return c
 end
 
 local function stroke(inst, color, thickness)
@@ -50,30 +91,89 @@ local function stroke(inst, color, thickness)
     s.Color = color or Color3.fromRGB(200, 20, 20)
     s.Thickness = thickness or 1
     s.Parent = inst
+    return s
 end
 
--- Mobile Fly Touch Controls
+local function showNotification(message, isError)
+    local sg = PlayerGui:FindFirstChild("KhushalChilliHubFullUI")
+    if not sg then return end
+
+    local notifFrame = sg:FindFirstChild("NotifContainer")
+    if not notifFrame then
+        notifFrame = Instance.new("Frame")
+        notifFrame.Name = "NotifContainer"
+        notifFrame.Size = UDim2.new(0.3, 0, 0.2, 0)
+        notifFrame.Position = UDim2.new(0.02, 0, 0.75, 0)
+        notifFrame.BackgroundTransparency = 1
+        notifFrame.Parent = sg
+        
+        local layout = Instance.new("UIListLayout")
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Padding = UDim.new(0, 5)
+        layout.Parent = notifFrame
+    end
+
+    local toast = Instance.new("Frame")
+    toast.Size = UDim2.new(1, 0, 0, 32)
+    toast.BackgroundColor3 = isError and Color3.fromRGB(50, 10, 10) or Color3.fromRGB(20, 40, 20)
+    toast.BackgroundTransparency = 0.1
+    corner(toast, 6)
+    stroke(toast, isError and Color3.fromRGB(220, 30, 30) or Color3.fromRGB(30, 220, 80), 1)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -10, 1, 0)
+    lbl.Position = UDim2.fromOffset(5, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = message
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = toast
+
+    toast.Parent = notifFrame
+    task.delay(3, function()
+        if toast and toast.Parent then
+            local tween = TweenService:Create(toast, TweenInfo.new(0.4), {BackgroundTransparency = 1})
+            tween:Play()
+            trackConn(tween.Completed:Connect(function() toast:Destroy() end))
+        end
+    end)
+end
+
+-- 4. FLY ENGINE & MOBILE CONTROLS
 local mobileFlyUp = false
 local mobileFlyDown = false
-local flyObj = { conn = nil, lv = nil, ao = nil, attachment = nil }
+local flyObj = { conn = nil, lv = nil, ao = nil, attachment = nil, diedConn = nil }
 
-local function stopFly()
+local function stopFly(keepState)
     if flyObj.conn then flyObj.conn:Disconnect() flyObj.conn = nil end
+    if flyObj.diedConn then flyObj.diedConn:Disconnect() flyObj.diedConn = nil end
     if flyObj.lv then flyObj.lv:Destroy() flyObj.lv = nil end
     if flyObj.ao then flyObj.ao:Destroy() flyObj.ao = nil end
     if flyObj.attachment then flyObj.attachment:Destroy() flyObj.attachment = nil end
     
+    mobileFlyUp = false
+    mobileFlyDown = false
+
+    if not keepState then
+        Yalat.State.flyActive = false
+    end
+
     local hum = getHum()
     if hum then hum.PlatformStand = false end
     
-    Yalat.State.flyActive = false
-    if PlayerGui:FindFirstChild("MobileFlyControls") then
-        PlayerGui.MobileFlyControls.Visible = false
+    local sg = PlayerGui:FindFirstChild("KhushalChilliHubFullUI")
+    if sg and sg:FindFirstChild("MobileFlyControls") then
+        sg.MobileFlyControls.Visible = false
     end
 end
 
 local function startFly(speed)
-    stopFly()
+    stopFly(true)
+    speed = math.clamp(speed or 50, 1, 1000)
+    Yalat.State.flySpeed = speed
+
     local root, hum = getRoot(), getHum()
     if not (root and hum) then return end
 
@@ -97,14 +197,23 @@ local function startFly(speed)
     hum.PlatformStand = true
     Yalat.State.flyActive = true
 
-    if PlayerGui:FindFirstChild("MobileFlyControls") then
-        PlayerGui.MobileFlyControls.Visible = true
+    local sg = PlayerGui:FindFirstChild("KhushalChilliHubFullUI")
+    if sg and sg:FindFirstChild("MobileFlyControls") then
+        sg.MobileFlyControls.Visible = true
     end
+
+    flyObj.diedConn = hum.Died:Connect(function()
+        stopFly(true)
+    end)
 
     flyObj.conn = RunService.RenderStepped:Connect(function()
         local cam = Workspace.CurrentCamera
-        if not (root.Parent and cam) then return stopFly() end
-        local md = hum.MoveDirection
+        local currentRoot, currentHum = getRoot(), getHum()
+        if not (currentRoot and currentRoot.Parent and currentHum and cam) then 
+            return stopFly(true) 
+        end
+
+        local md = currentHum.MoveDirection
         local look = cam.CFrame.LookVector
         local flat = Vector3.new(look.X, 0, look.Z)
         local vel = md
@@ -113,7 +222,9 @@ local function startFly(speed)
             flat = flat.Unit
             local flatRight = flat:Cross(Vector3.yAxis)
             vel = look * md:Dot(flat) + cam.CFrame.RightVector * md:Dot(flatRight)
-            flyObj.ao.CFrame = CFrame.new(root.Position, root.Position + flat)
+            flyObj.ao.CFrame = CFrame.new(currentRoot.Position, currentRoot.Position + flat)
+        else
+            flyObj.ao.CFrame = cam.CFrame
         end
 
         if UserInputService:IsKeyDown(Enum.KeyCode.E) or UserInputService:IsKeyDown(Enum.KeyCode.Space) or mobileFlyUp then 
@@ -122,11 +233,12 @@ local function startFly(speed)
         if UserInputService:IsKeyDown(Enum.KeyCode.Q) or mobileFlyDown then 
             vel = vel - Vector3.yAxis 
         end
-        flyObj.lv.VectorVelocity = vel * speed
+
+        flyObj.lv.VectorVelocity = vel * Yalat.State.flySpeed
     end)
 end
 
--- Noclip Manager
+-- 5. NOCLIP ENGINE
 local function setNoclip(enable)
     Yalat.State.noclip = enable
     local char = getChar()
@@ -151,14 +263,184 @@ local function setNoclip(enable)
     end
 end
 
--- Working Tool Spawner
+-- 6. SHADER, SKYBOX & WATER BACKUP SYSTEMS
+local lightingBackup = nil
+local shaderStorage = { FX = {}, Highlight = nil, CustomSky = nil, SavedSky = nil }
+
+local function applyHighlight(char)
+    if not char then return end
+    if shaderStorage.Highlight then 
+        shaderStorage.Highlight:Destroy() 
+        shaderStorage.Highlight = nil
+    end
+    local hl = Instance.new("Highlight")
+    hl.Name = "RainbowGlow"
+    hl.FillTransparency = 0.6
+    hl.OutlineTransparency = 0.1
+    hl.OutlineColor = Color3.fromRGB(255, 50, 50)
+    hl.Adornee = char
+    hl.Parent = char
+    shaderStorage.Highlight = hl
+end
+
+local function enableShader()
+    if Yalat.State.shaderActive then return end
+    
+    if not lightingBackup then
+        lightingBackup = {
+            Brightness = Lighting.Brightness,
+            ClockTime = Lighting.ClockTime,
+            GlobalShadows = Lighting.GlobalShadows,
+            ExposureCompensation = Lighting.ExposureCompensation,
+            Ambient = Lighting.Ambient,
+            OutdoorAmbient = Lighting.OutdoorAmbient
+        }
+    end
+
+    Yalat.State.shaderActive = true
+    Lighting.Brightness = 3.2
+    Lighting.ClockTime = 14.2
+    Lighting.GlobalShadows = true
+    Lighting.ExposureCompensation = 0.25
+    Lighting.Ambient = Color3.fromRGB(80, 80, 90)
+    Lighting.OutdoorAmbient = Color3.fromRGB(120, 120, 130)
+
+    local existingSky = Lighting:FindFirstChildOfClass("Sky")
+    if existingSky then
+        shaderStorage.SavedSky = existingSky
+        existingSky.Parent = nil
+    end
+
+    local sky = Instance.new("Sky")
+    sky.Name = "ChilliShaderSky"
+    sky.SkyboxBk = "rbxassetid://600830446"
+    sky.SkyboxDn = "rbxassetid://600831635"
+    sky.SkyboxFt = "rbxassetid://600832720"
+    sky.SkyboxLf = "rbxassetid://600833862"
+    sky.SkyboxRt = "rbxassetid://600834938"
+    sky.SkyboxUp = "rbxassetid://600835863"
+    sky.StarCount = 3000
+    sky.Parent = Lighting
+    shaderStorage.CustomSky = sky
+
+    local bloom = Instance.new("BloomEffect", Lighting)
+    bloom.Intensity = 0.65; bloom.Size = 32; bloom.Threshold = 0.7
+    table.insert(shaderStorage.FX, bloom)
+
+    local cc = Instance.new("ColorCorrectionEffect", Lighting)
+    cc.Brightness = 0.08; cc.Contrast = 0.25; cc.Saturation = 0.35
+    cc.TintColor = Color3.fromRGB(255, 248, 240)
+    table.insert(shaderStorage.FX, cc)
+
+    local sunRays = Instance.new("SunRaysEffect", Lighting)
+    sunRays.Intensity = 0.45; sunRays.Spread = 0.85
+    table.insert(shaderStorage.FX, sunRays)
+
+    local dof = Instance.new("DepthOfFieldEffect", Lighting)
+    dof.FarIntensity = 0.15; dof.FocusDistance = 25
+    dof.InFocusRadius = 40; dof.NearIntensity = 0.1
+    table.insert(shaderStorage.FX, dof)
+
+    local atmos = Instance.new("Atmosphere", Lighting)
+    atmos.Density = 0.35; atmos.Offset = 0.25
+    atmos.Color = Color3.fromRGB(180, 200, 220)
+    atmos.Decay = Color3.fromRGB(100, 110, 120)
+    atmos.Glare = 0.5; atmos.Haze = 0.8
+    table.insert(shaderStorage.FX, atmos)
+
+    applyHighlight(getChar())
+end
+
+local function disableShader()
+    if not Yalat.State.shaderActive then return end
+    Yalat.State.shaderActive = false
+
+    if lightingBackup then
+        Lighting.Brightness = lightingBackup.Brightness
+        Lighting.ClockTime = lightingBackup.ClockTime
+        Lighting.GlobalShadows = lightingBackup.GlobalShadows
+        Lighting.ExposureCompensation = lightingBackup.ExposureCompensation
+        Lighting.Ambient = lightingBackup.Ambient
+        Lighting.OutdoorAmbient = lightingBackup.OutdoorAmbient
+        lightingBackup = nil
+    end
+
+    for _, fx in ipairs(shaderStorage.FX) do
+        if fx and fx.Parent then fx:Destroy() end
+    end
+    shaderStorage.FX = {}
+
+    if shaderStorage.CustomSky then
+        shaderStorage.CustomSky:Destroy()
+        shaderStorage.CustomSky = nil
+    end
+
+    if shaderStorage.SavedSky then
+        shaderStorage.SavedSky.Parent = Lighting
+        shaderStorage.SavedSky = nil
+    end
+
+    if shaderStorage.Highlight then
+        shaderStorage.Highlight:Destroy()
+        shaderStorage.Highlight = nil
+    end
+end
+
+local waterBackup = nil
+local function enableRealisticWater()
+    local terrain = Workspace:FindFirstChildOfClass("Terrain")
+    if terrain then
+        if not Yalat.State.waterActive then
+            waterBackup = {
+                Color = terrain.WaterColor,
+                WaveSize = terrain.WaterWaveSize,
+                WaveSpeed = terrain.WaterWaveSpeed,
+                Transparency = terrain.WaterTransparency,
+                Reflectance = terrain.WaterReflectance
+            }
+        end
+        Yalat.State.waterActive = true
+        terrain.WaterColor = Color3.fromRGB(0, 140, 190)
+        terrain.WaterTransparency = 0.92
+        terrain.WaterWaveSize = 0.5
+        terrain.WaterWaveSpeed = 22
+        terrain.WaterReflectance = 0.95
+    end
+end
+
+local function disableRealisticWater()
+    local terrain = Workspace:FindFirstChildOfClass("Terrain")
+    if terrain and Yalat.State.waterActive then
+        Yalat.State.waterActive = false
+        if waterBackup then
+            terrain.WaterColor = waterBackup.Color
+            terrain.WaterTransparency = waterBackup.Transparency
+            terrain.WaterWaveSize = waterBackup.WaveSize
+            terrain.WaterWaveSpeed = waterBackup.WaveSpeed
+            terrain.WaterReflectance = waterBackup.Reflectance
+            waterBackup = nil
+        end
+    end
+end
+
+-- 7. TOOL SPAWNER ENGINE (WITH CACHED ANIMATION & FULL CLEANUP TRACKING)
+local weaponAnimation = Instance.new("Animation")
+weaponAnimation.AnimationId = "rbxassetid://125906970"
+local cachedAnimTrack = nil
+
 local function spawnItem(itemName)
     local char = getChar()
-    if not char then return end
+    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+    if not (char and backpack) then return end
+
+    if backpack:FindFirstChild(itemName) or char:FindFirstChild(itemName) then
+        showNotification(itemName .. " is already in your inventory!", true)
+        return
+    end
 
     local tool = Instance.new("Tool")
     tool.Name = itemName
-    
+
     local handle = Instance.new("Part")
     handle.Name = "Handle"
     handle.Size = Vector3.new(1, 1, 1)
@@ -168,166 +450,73 @@ local function spawnItem(itemName)
     if lower == "sword" or lower == "bat" then
         handle.Size = Vector3.new(0.5, 4, 0.5)
         handle.Material = Enum.Material.Metal
-        
+
         local isAttacking = false
-        tool.Activated:Connect(function()
+        local hitDebounceMap = {}
+
+        trackConn(tool.Activated:Connect(function()
             if isAttacking then return end
             isAttacking = true
-            
-            local anim = Instance.new("Animation")
-            anim.AnimationId = "rbxassetid://125906970"
+            hitDebounceMap = {}
+
             local hum = getHum()
-            if hum then
-                local track = hum:LoadAnimation(anim)
-                track:Play()
+            local animator = hum and hum:FindFirstChildOfClass("Animator")
+            if animator then
+                if not cachedAnimTrack or cachedAnimTrack.Animator ~= animator then
+                    cachedAnimTrack = animator:LoadAnimation(weaponAnimation)
+                end
+                cachedAnimTrack:Play()
             end
             task.delay(0.5, function() isAttacking = false end)
-        end)
+        end))
 
-        handle.Touched:Connect(function(hit)
+        trackConn(handle.Touched:Connect(function(hit)
             if not isAttacking then return end
-            local enemyHum = hit.Parent and hit.Parent:FindFirstChildOfClass("Humanoid")
-            if enemyHum and hit.Parent ~= char then
+            local enemyHum = findHumanoidFromHit(hit)
+            if enemyHum and enemyHum.Parent ~= char and not hitDebounceMap[enemyHum] then
+                hitDebounceMap[enemyHum] = true
                 enemyHum:TakeDamage(25)
             end
-        end)
+        end))
 
     elseif lower == "speedcoil" then
         handle.BrickColor = BrickColor.new("Bright blue")
-        tool.Equipped:Connect(function()
+        trackConn(tool.Equipped:Connect(function()
             Yalat.State.holdingSpeedCoil = true
             local hum = getHum()
             if hum then hum.WalkSpeed = 50 end
-        end)
-        tool.Unequipped:Connect(function()
+        end))
+        trackConn(tool.Unequipped:Connect(function()
             Yalat.State.holdingSpeedCoil = false
             local hum = getHum()
-            if hum then hum.WalkSpeed = Yalat.State.speed or 16 end
-        end)
+            if hum then 
+                hum.WalkSpeed = Yalat.State.speed or Yalat.Baseline.walkSpeed 
+            end
+        end))
     elseif lower == "apple" then
         handle.Shape = Enum.PartType.Ball
         handle.BrickColor = BrickColor.new("Bright red")
-        tool.Activated:Connect(function()
+        trackConn(tool.Activated:Connect(function()
             local hum = getHum()
             if hum then
                 hum.Health = math.min(hum.MaxHealth, hum.Health + 20)
                 tool:Destroy()
             end
-        end)
+        end))
     end
 
-    tool.Parent = LocalPlayer:WaitForChild("Backpack")
+    tool.Parent = backpack
+    table.insert(Yalat.SpawnedTools, tool)
+    showNotification("Received " .. itemName .. "!", false)
 end
 
--- Water Effects
-local waterBackup = {}
-local function enableRealisticWater()
-    local terrain = Workspace:FindFirstChildOfClass("Terrain")
-    if terrain then
-        if not Yalat.State.waterActive then
-            waterBackup.Color = terrain.WaterColor
-            waterBackup.WaveSize = terrain.WaterWaveSize
-            waterBackup.WaveSpeed = terrain.WaterWaveSpeed
-            waterBackup.Transparency = terrain.WaterTransparency
-            waterBackup.Reflectance = terrain.WaterReflectance
-        end
-        Yalat.State.waterActive = true
-        terrain.WaterColor = Color3.fromRGB(10, 110, 170)
-        terrain.WaterTransparency = 0.88
-        terrain.WaterWaveSize = 0.45
-        terrain.WaterWaveSpeed = 16
-        terrain.WaterReflectance = 0.85
-    end
-end
-
-local function disableRealisticWater()
-    local terrain = Workspace:FindFirstChildOfClass("Terrain")
-    if terrain and Yalat.State.waterActive then
-        Yalat.State.waterActive = false
-        if waterBackup.Color then
-            terrain.WaterColor = waterBackup.Color
-            terrain.WaterTransparency = waterBackup.Transparency
-            terrain.WaterWaveSize = waterBackup.WaveSize
-            terrain.WaterWaveSpeed = waterBackup.WaveSpeed
-            terrain.WaterReflectance = waterBackup.Reflectance
-        end
-    end
-end
-
--- Shader Effects
-local lightingBackup = {}
-local shaderStorage = { FX = {}, Highlight = nil }
-
-local function applyHighlight(char)
-    if not char then return end
-    if shaderStorage.Highlight then shaderStorage.Highlight:Destroy() end
-    local hl = Instance.new("Highlight")
-    hl.Name = "RainbowGlow"
-    hl.FillTransparency = 0.5
-    hl.Adornee = char
-    hl.Parent = char
-    shaderStorage.Highlight = hl
-end
-
-local function enableShader()
-    if Yalat.State.shaderActive then return end
-    
-    lightingBackup.Brightness = Lighting.Brightness
-    lightingBackup.ClockTime = Lighting.ClockTime
-    lightingBackup.GlobalShadows = Lighting.GlobalShadows
-
-    Yalat.State.shaderActive = true
-    Lighting.Brightness = 2.8
-    Lighting.ClockTime = 14
-    Lighting.GlobalShadows = true
-
-    local bloom = Instance.new("BloomEffect", Lighting)
-    bloom.Intensity = 0.5
-    bloom.Size = 28
-    bloom.Threshold = 0.75
-    table.insert(shaderStorage.FX, bloom)
-
-    local cc = Instance.new("ColorCorrectionEffect", Lighting)
-    cc.Brightness = 0.05
-    cc.Contrast = 0.15
-    cc.Saturation = 0.25
-    table.insert(shaderStorage.FX, cc)
-
-    local sunRays = Instance.new("SunRaysEffect", Lighting)
-    sunRays.Intensity = 0.3
-    sunRays.Spread = 0.8
-    table.insert(shaderStorage.FX, sunRays)
-
-    applyHighlight(getChar())
-end
-
-local function disableShader()
-    if not Yalat.State.shaderActive then return end
-    Yalat.State.shaderActive = false
-
-    if lightingBackup.Brightness then Lighting.Brightness = lightingBackup.Brightness end
-    if lightingBackup.ClockTime then Lighting.ClockTime = lightingBackup.ClockTime end
-    if lightingBackup.GlobalShadows ~= nil then Lighting.GlobalShadows = lightingBackup.GlobalShadows end
-
-    for _, fx in ipairs(shaderStorage.FX) do
-        if fx and fx.Parent then fx:Destroy() end
-    end
-    shaderStorage.FX = {}
-
-    if shaderStorage.Highlight then
-        shaderStorage.Highlight:Destroy()
-        shaderStorage.Highlight = nil
-    end
-end
-
--- GUI Setup
+-- 8. GUI CONSTRUCTION & ADAPTIVE RESPONSIVENESS
 local gui = Instance.new("ScreenGui")
 gui.Name = "KhushalChilliHubFullUI"
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 9999
 gui.Parent = PlayerGui
 
--- Mobile Fly Touch Controls
 local flyUI = Instance.new("Frame")
 flyUI.Name = "MobileFlyControls"
 flyUI.Size = UDim2.fromOffset(50, 110)
@@ -339,10 +528,8 @@ flyUI.Parent = gui
 local upBtn = Instance.new("TextButton")
 upBtn.Size = UDim2.fromOffset(45, 45)
 upBtn.BackgroundColor3 = Color3.fromRGB(180, 20, 20)
-upBtn.Text = "▲"
-upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-upBtn.Font = Enum.Font.GothamBold
-upBtn.TextSize = 18
+upBtn.Text = "▲"; upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+upBtn.Font = Enum.Font.GothamBold; upBtn.TextSize = 18
 upBtn.Parent = flyUI
 corner(upBtn, 22)
 
@@ -350,34 +537,58 @@ local downBtn = Instance.new("TextButton")
 downBtn.Size = UDim2.fromOffset(45, 45)
 downBtn.Position = UDim2.fromOffset(0, 55)
 downBtn.BackgroundColor3 = Color3.fromRGB(180, 20, 20)
-downBtn.Text = "▼"
-downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-downBtn.Font = Enum.Font.GothamBold
-downBtn.TextSize = 18
+downBtn.Text = "▼"; downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+downBtn.Font = Enum.Font.GothamBold; downBtn.TextSize = 18
 downBtn.Parent = flyUI
 corner(downBtn, 22)
 
-upBtn.MouseButton1Down:Connect(function() mobileFlyUp = true end)
-upBtn.MouseButton1Up:Connect(function() mobileFlyUp = false end)
-downBtn.MouseButton1Down:Connect(function() mobileFlyDown = true end)
-downBtn.MouseButton1Up:Connect(function() mobileFlyDown = false end)
+trackConn(upBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        mobileFlyUp = true
+    end
+end))
+trackConn(upBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        mobileFlyUp = false
+    end
+end))
 
--- Floating Open/Close Button
+trackConn(downBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        mobileFlyDown = true
+    end
+end))
+trackConn(downBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        mobileFlyDown = false
+    end
+end))
+
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size = UDim2.fromOffset(100, 36)
 toggleBtn.Position = UDim2.new(1, -110, 0, 40)
 toggleBtn.BackgroundColor3 = Color3.fromRGB(180, 10, 10)
 toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = 13
+toggleBtn.Font = Enum.Font.GothamBold; toggleBtn.TextSize = 13
 toggleBtn.Text = "KHUSHAL"
 toggleBtn.Parent = gui
 corner(toggleBtn, 8)
 stroke(toggleBtn, Color3.fromRGB(255, 40, 40), 1.5)
 
--- Main Wide Dashboard Panel
+local cmdOpenBtn = Instance.new("TextButton")
+cmdOpenBtn.Size = UDim2.fromOffset(90, 32)
+cmdOpenBtn.Position = UDim2.new(1, -100, 0, 82)
+cmdOpenBtn.BackgroundColor3 = Color3.fromRGB(40, 20, 22)
+cmdOpenBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+cmdOpenBtn.Font = Enum.Font.GothamBold; cmdOpenBtn.TextSize = 11
+cmdOpenBtn.Text = "CMD BAR"
+cmdOpenBtn.Parent = gui
+corner(cmdOpenBtn, 6)
+stroke(cmdOpenBtn, Color3.fromRGB(180, 20, 20), 1)
+
 local main = Instance.new("Frame")
-main.Size = UDim2.fromOffset(780, 420)
+main.Size = UDim2.fromScale(0.85, 0.75)
+main.SizeConstraint = Enum.SizeConstraint.RelativeYY
 main.AnchorPoint = Vector2.new(0.5, 0.5)
 main.Position = UDim2.fromScale(0.5, 0.45)
 main.BackgroundColor3 = Color3.fromRGB(15, 10, 12)
@@ -386,41 +597,42 @@ main.Parent = gui
 corner(main, 12)
 stroke(main, Color3.fromRGB(220, 20, 20), 2)
 
-toggleBtn.Activated:Connect(function() main.Visible = not main.Visible end)
+local aspect = Instance.new("UIAspectRatioConstraint")
+aspect.AspectRatio = 1.75
+aspect.Parent = main
 
--- Header Bar
+trackConn(toggleBtn.Activated:Connect(function() 
+    main.Visible = not main.Visible 
+end))
+
 local header = Instance.new("Frame")
-header.Size = UDim2.new(1, 0, 0, 45)
+header.Size = UDim2.new(1, 0, 0, 42)
 header.BackgroundTransparency = 1
 header.Parent = main
 
 local title = Instance.new("TextLabel")
-title.Position = UDim2.fromOffset(15, 8)
-title.Size = UDim2.new(1, -60, 1, -16)
+title.Position = UDim2.fromOffset(15, 6)
+title.Size = UDim2.new(1, -60, 1, -12)
 title.BackgroundTransparency = 1
 title.Text = "KHUSHAL ADMIN PANEL | CHILLI HUB EDITION"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 15
+title.Font = Enum.Font.GothamBold; title.TextSize = 13
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = header
 
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.fromOffset(30, 30)
-closeBtn.Position = UDim2.new(1, -38, 0, 8)
+closeBtn.Size = UDim2.fromOffset(28, 28)
+closeBtn.Position = UDim2.new(1, -34, 0, 6)
 closeBtn.BackgroundColor3 = Color3.fromRGB(180, 20, 20)
-closeBtn.Text = "X"
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 14
+closeBtn.Text = "X"; closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 13
 closeBtn.Parent = header
 corner(closeBtn, 6)
-closeBtn.Activated:Connect(function() main.Visible = false end)
+trackConn(closeBtn.Activated:Connect(function() main.Visible = false end))
 
--- Left Sidebar
 local sidebar = Instance.new("Frame")
-sidebar.Size = UDim2.new(0, 130, 1, -55)
-sidebar.Position = UDim2.fromOffset(10, 45)
+sidebar.Size = UDim2.new(0.2, 0, 1, -50)
+sidebar.Position = UDim2.fromOffset(8, 42)
 sidebar.BackgroundColor3 = Color3.fromRGB(22, 14, 16)
 sidebar.Parent = main
 corner(sidebar, 8)
@@ -431,30 +643,29 @@ local tabPages = {}
 
 local function createTabBtn(name, iconText)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -12, 0, 36)
-    btn.Position = UDim2.fromOffset(6, #tabBtns * 42 + 8)
+    btn.Size = UDim2.new(1, -10, 0, 34)
+    btn.Position = UDim2.fromOffset(5, #tabBtns * 38 + 6)
     btn.BackgroundColor3 = (#tabBtns == 0) and Color3.fromRGB(180, 20, 20) or Color3.fromRGB(30, 18, 20)
     btn.Text = iconText .. " " .. name
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 12
+    btn.Font = Enum.Font.GothamBold; btn.TextSize = 11
     btn.Parent = sidebar
     corner(btn, 6)
 
     local page = Instance.new("ScrollingFrame")
-    page.Size = UDim2.new(0, 440, 1, -55)
-    page.Position = UDim2.fromOffset(150, 45)
+    page.Size = UDim2.new(0.55, 0, 1, -50)
+    page.Position = UDim2.new(0.22, 0, 0, 42)
     page.BackgroundTransparency = 1
-    page.ScrollBarThickness = 4
+    page.ScrollBarThickness = 3
     page.Visible = (#tabBtns == 0)
     page.Parent = main
 
-    btn.Activated:Connect(function()
+    trackConn(btn.Activated:Connect(function()
         for _, b in ipairs(tabBtns) do b.BackgroundColor3 = Color3.fromRGB(30, 18, 20) end
         for _, p in ipairs(tabPages) do p.Visible = false end
         btn.BackgroundColor3 = Color3.fromRGB(180, 20, 20)
         page.Visible = true
-    end)
+    end))
 
     table.insert(tabBtns, btn)
     table.insert(tabPages, page)
@@ -465,10 +676,9 @@ local playerPage = createTabBtn("Player", "👤")
 local worldPage = createTabBtn("World", "🌐")
 local toolsPage = createTabBtn("Tools", "🛠️")
 
--- Logo Frame
 local logoFrame = Instance.new("Frame")
-logoFrame.Size = UDim2.new(1, -12, 0, 90)
-logoFrame.Position = UDim2.new(0, 6, 1, -98)
+logoFrame.Size = UDim2.new(1, -10, 0, 75)
+logoFrame.Position = UDim2.new(0, 5, 1, -80)
 logoFrame.BackgroundColor3 = Color3.fromRGB(35, 10, 12)
 logoFrame.Parent = sidebar
 corner(logoFrame, 8)
@@ -479,14 +689,13 @@ logoText.Size = UDim2.new(1, 0, 1, 0)
 logoText.BackgroundTransparency = 1
 logoText.Text = "🌶️\nCHILLI HUB"
 logoText.TextColor3 = Color3.fromRGB(255, 50, 50)
-logoText.Font = Enum.Font.GothamBlack
-logoText.TextSize = 14
+logoText.Font = Enum.Font.GothamBlack; logoText.TextSize = 12
 logoText.Parent = logoFrame
 
 local function setupGrid(page)
     local grid = Instance.new("UIGridLayout")
-    grid.CellSize = UDim2.new(0.48, 0, 0, 52)
-    grid.CellPadding = UDim2.new(0.03, 0, 0, 8)
+    grid.CellSize = UDim2.new(0.48, 0, 0, 48)
+    grid.CellPadding = UDim2.new(0.03, 0, 0, 6)
     grid.Parent = page
 end
 
@@ -502,48 +711,48 @@ local function createOptionBox(parent, nameKey, mainTitle, subTitle, isToggle, c
     stroke(box, Color3.fromRGB(90, 25, 25), 1)
 
     local t1 = Instance.new("TextLabel")
-    t1.Position = UDim2.fromOffset(8, 6)
-    t1.Size = UDim2.new(0.65, 0, 0, 18)
+    t1.Name = "MainTitle"
+    t1.Position = UDim2.fromOffset(6, 4)
+    t1.Size = UDim2.new(0.65, 0, 0, 16)
     t1.BackgroundTransparency = 1
     t1.Text = mainTitle
     t1.TextColor3 = Color3.fromRGB(255, 255, 255)
-    t1.Font = Enum.Font.GothamBold
-    t1.TextSize = 12
+    t1.Font = Enum.Font.GothamBold; t1.TextSize = 11
     t1.TextXAlignment = Enum.TextXAlignment.Left
     t1.Parent = box
 
     local t2 = Instance.new("TextLabel")
-    t2.Position = UDim2.fromOffset(8, 26)
-    t2.Size = UDim2.new(0.65, 0, 0, 16)
+    t2.Name = "SubTitle"
+    t2.Position = UDim2.fromOffset(6, 22)
+    t2.Size = UDim2.new(0.65, 0, 0, 14)
     t2.BackgroundTransparency = 1
     t2.Text = "(" .. subTitle .. ")"
     t2.TextColor3 = Color3.fromRGB(160, 160, 160)
-    t2.Font = Enum.Font.Code
-    t2.TextSize = 10
+    t2.Font = Enum.Font.Code; t2.TextSize = 9
     t2.TextXAlignment = Enum.TextXAlignment.Left
     t2.Parent = box
 
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.fromOffset(45, 24)
-    btn.Position = UDim2.new(1, -52, 0.5, -12)
+    btn.Size = UDim2.fromOffset(40, 22)
+    btn.Position = UDim2.new(1, -45, 0.5, -11)
     btn.BackgroundColor3 = isToggle and Color3.fromRGB(80, 80, 80) or Color3.fromRGB(180, 20, 20)
     btn.Text = isToggle and "OFF" or "RUN"
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 10
+    btn.Font = Enum.Font.GothamBold; btn.TextSize = 9
     btn.Parent = box
     corner(btn, 4)
 
     local state = false
-    local function updateUI(val)
-        state = val
+    local function updateUI(val, customSub)
+        if customSub then t2.Text = "(" .. customSub .. ")" end
         if isToggle then
+            state = (val == true)
             btn.BackgroundColor3 = state and Color3.fromRGB(0, 180, 70) or Color3.fromRGB(80, 80, 80)
             btn.Text = state and "ON" or "OFF"
         end
     end
 
-    btn.Activated:Connect(function()
+    trackConn(btn.Activated:Connect(function()
         if isToggle then
             state = not state
             updateUI(state)
@@ -551,237 +760,380 @@ local function createOptionBox(parent, nameKey, mainTitle, subTitle, isToggle, c
         else
             callback(true)
         end
-    end)
+    end))
 
     Yalat.UIElements[nameKey] = updateUI
 end
 
--- PLAYER TAB
 createOptionBox(playerPage, "god", "God Mode", ";god", true, function(v) Yalat.State.god = v end)
 createOptionBox(playerPage, "noclip", "Noclip", ";noclip", true, function(v) setNoclip(v) end)
 createOptionBox(playerPage, "spin", "Spin Player", ";spin", true, function(v) Yalat.State.spin = v end)
-createOptionBox(playerPage, "fly", "Fly Mode", ";fly 50", true, function(v) if v then startFly(50) else stopFly() end end)
-createOptionBox(playerPage, "set", "Set Location", ";set", false, function() local r = getRoot(); if r then Yalat.SavedLocation = r.CFrame end end)
-createOptionBox(playerPage, "tp", "Teleport Saved", ";tp", false, function() local r = getRoot(); if r and Yalat.SavedLocation then r.CFrame = Yalat.SavedLocation end end)
-createOptionBox(playerPage, "speed", "Speed (50)", ";speed 50", true, function(v) Yalat.State.speed = v and 50 or 16 end)
-createOptionBox(playerPage, "jump", "Jump (100)", ";jump 100", true, function(v) Yalat.State.jump = v and 100 or 50 end)
+createOptionBox(playerPage, "fly", "Fly Mode", ";fly 50", true, function(v) if v then startFly(Yalat.State.flySpeed or 50) else stopFly(false) end end)
+createOptionBox(playerPage, "set", "Set Location", ";set", false, function() 
+    local r = getRoot()
+    if r then 
+        Yalat.SavedLocation = r.CFrame 
+        showNotification("Location set!", false)
+    end 
+end)
+createOptionBox(playerPage, "tp", "Teleport Saved", ";tp", false, function() 
+    local r = getRoot()
+    if r and Yalat.SavedLocation then 
+        r.CFrame = Yalat.SavedLocation 
+        showNotification("Teleported to saved location!", false)
+    else
+        showNotification("No location saved!", true)
+    end 
+end)
+createOptionBox(playerPage, "speed", "Speed (50)", ";speed 50", true, function(v) 
+    Yalat.State.speed = v and (Yalat.State.speed or 50) or nil
+    local hum = getHum()
+    if hum then hum.WalkSpeed = Yalat.State.speed or Yalat.Baseline.walkSpeed end
+end)
+createOptionBox(playerPage, "jump", "Jump (100)", ";jump 100", true, function(v) 
+    Yalat.State.jump = v and (Yalat.State.jump or 100) or nil
+    local hum = getHum()
+    if hum then 
+        hum.UseJumpPower = true
+        hum.JumpPower = Yalat.State.jump or Yalat.Baseline.jumpPower
+    end
+end)
 
--- WORLD TAB
-createOptionBox(worldPage, "shader", "Shader Effects", ";shader", true, function(v) if v then enableShader() else disableShader() end end)
+createOptionBox(worldPage, "shader", "Ultra Shader", ";shader", true, function(v) if v then enableShader() else disableShader() end end)
 createOptionBox(worldPage, "water", "Realistic Water", ";water", true, function(v) if v then enableRealisticWater() else disableRealisticWater() end end)
 
--- TOOLS TAB
 createOptionBox(toolsPage, "sword", "Give Sword", ";sword", false, function() spawnItem("Sword") end)
 createOptionBox(toolsPage, "bat", "Give Baseball Bat", ";bat", false, function() spawnItem("Bat") end)
 createOptionBox(toolsPage, "apple", "Give Apple", ";apple", false, function() spawnItem("Apple") end)
 createOptionBox(toolsPage, "speedcoil", "Give Speed Coil", ";speedcoil", false, function() spawnItem("SpeedCoil") end)
 
--- RIGHT PANEL: CMDS LIST
 local rightList = Instance.new("Frame")
-rightList.Size = UDim2.new(0, 170, 1, -55)
-rightList.Position = UDim2.fromOffset(600, 45)
+rightList.Size = UDim2.new(0.21, 0, 1, -50)
+rightList.Position = UDim2.new(0.78, 0, 0, 42)
 rightList.BackgroundColor3 = Color3.fromRGB(22, 14, 16)
 rightList.Parent = main
 corner(rightList, 8)
 stroke(rightList, Color3.fromRGB(70, 20, 20), 1)
 
 local cmdTitle = Instance.new("TextLabel")
-cmdTitle.Position = UDim2.fromOffset(8, 8)
-cmdTitle.Size = UDim2.new(1, -16, 0, 20)
+cmdTitle.Position = UDim2.fromOffset(6, 6)
+cmdTitle.Size = UDim2.new(1, -12, 0, 18)
 cmdTitle.BackgroundTransparency = 1
 cmdTitle.Text = "📋 CMDS LIST"
 cmdTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-cmdTitle.Font = Enum.Font.GothamBold
-cmdTitle.TextSize = 12
+cmdTitle.Font = Enum.Font.GothamBold; cmdTitle.TextSize = 11
 cmdTitle.TextXAlignment = Enum.TextXAlignment.Left
 cmdTitle.Parent = rightList
 
 local cmdScroll = Instance.new("ScrollingFrame")
-cmdScroll.Size = UDim2.new(1, -10, 1, -32)
-cmdScroll.Position = UDim2.fromOffset(5, 28)
+cmdScroll.Size = UDim2.new(1, -8, 1, -28)
+cmdScroll.Position = UDim2.fromOffset(4, 24)
 cmdScroll.BackgroundTransparency = 1
-cmdScroll.ScrollBarThickness = 3
+cmdScroll.ScrollBarThickness = 2
 cmdScroll.Parent = rightList
 
 local cmdLayout = Instance.new("UIListLayout")
-cmdLayout.Padding = UDim.new(0, 4)
+cmdLayout.Padding = UDim.new(0, 3)
 cmdLayout.Parent = cmdScroll
 
 local function addCmdListRow(cmd, desc)
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, 0, 0, 26)
+    lbl.Size = UDim2.new(1, 0, 0, 24)
     lbl.BackgroundTransparency = 1
-    lbl.Text = ";" .. cmd .. "\n- " .. desc
+    lbl.Text = cmd .. "\n- " .. desc
     lbl.TextColor3 = Color3.fromRGB(220, 220, 220)
-    lbl.Font = Enum.Font.Code
-    lbl.TextSize = 10
+    lbl.Font = Enum.Font.Code; lbl.TextSize = 9
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = cmdScroll
 end
 
-addCmdListRow("cmds / ;help", "Toggle GUI")
-addCmdListRow("god / ;ungod", "God Mode")
-addCmdListRow("noclip / ;clip", "Wall Noclip")
-addCmdListRow("spin / ;unspin", "Spin Player")
-addCmdListRow("fly / ;unfly", "Fly Mode")
-addCmdListRow("speed / ;ws", "Set WalkSpeed")
-addCmdListRow("unspeed", "Reset Speed")
-addCmdListRow("jump / ;jp", "Set JumpPower")
-addCmdListRow("set", "Save Position")
-addCmdListRow("tp", "Teleport Location")
-addCmdListRow("shader / ;unshader", "Shader Effects")
-addCmdListRow("water / ;unwater", "Realistic Water")
-addCmdListRow("bat / apple", "Spawn Tools")
-addCmdListRow("sword / speedcoil", "Spawn Tools")
+addCmdListRow(";cmds / ;help", "Toggle GUI")
+addCmdListRow(";god / ;ungod", "God Mode")
+addCmdListRow(";noclip / ;clip", "Wall Noclip")
+addCmdListRow(";spin / ;unspin", "Spin Player")
+addCmdListRow(";fly / ;unfly", "Fly Mode")
+addCmdListRow(";speed / ;ws", "Set WalkSpeed")
+addCmdListRow(";unspeed", "Reset Speed")
+addCmdListRow(";jump / ;jp", "Set JumpPower")
+addCmdListRow(";set", "Save Position")
+addCmdListRow(";tp", "Teleport Location")
+addCmdListRow(";shader / ;unshader", "Ultra Shader")
+addCmdListRow(";water / ;unwater", "Realistic Water")
+addCmdListRow(";bat / ;apple", "Spawn Tools")
+addCmdListRow(";sword / ;speedcoil", "Spawn Tools")
 
--- BOTTOM FLOATING COMMAND BAR WITH CLEAR 'X' BUTTON
 local bar = Instance.new("Frame")
-bar.Size = UDim2.fromOffset(480, 40)
+bar.Name = "CommandBarFrame"
+bar.Size = UDim2.new(0.85, 0, 0, 38)
+bar.SizeConstraint = Enum.SizeConstraint.RelativeX
 bar.AnchorPoint = Vector2.new(0.5, 1)
-bar.Position = UDim2.new(0.5, 0, 1, -12)
+bar.Position = UDim2.new(0.5, 0, 1, -10)
 bar.BackgroundColor3 = Color3.fromRGB(20, 12, 14)
+bar.Visible = true
 bar.Parent = gui
-corner(bar, 20)
+corner(bar, 19)
 stroke(bar, Color3.fromRGB(220, 20, 20), 1.5)
 
+local barConstraint = Instance.new("UISizeConstraint")
+barConstraint.MaxSize = Vector2.new(500, 38)
+barConstraint.MinSize = Vector2.new(260, 38)
+barConstraint.Parent = bar
+
 local box = Instance.new("TextBox")
-box.Size = UDim2.new(1, -75, 1, 0)
-box.Position = UDim2.fromOffset(15, 0)
+box.Size = UDim2.new(1, -70, 1, 0)
+box.Position = UDim2.fromOffset(12, 0)
 box.BackgroundTransparency = 1
 box.TextColor3 = Color3.fromRGB(255, 255, 255)
 box.PlaceholderText = "Type command here... (e.g. ;shader, ;god)"
 box.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
-box.Font = Enum.Font.Code
-box.TextSize = 13
+box.Font = Enum.Font.Code; box.TextSize = 12
 box.TextXAlignment = Enum.TextXAlignment.Left
 box.ClearTextOnFocus = false
 box.Text = ""
 box.Parent = bar
 
--- Clear/Close 'X' Button on Command Bar
 local clearBtn = Instance.new("TextButton")
-clearBtn.Size = UDim2.fromOffset(26, 26)
-clearBtn.Position = UDim2.new(1, -62, 0.5, -13)
+clearBtn.Size = UDim2.fromOffset(24, 24)
+clearBtn.Position = UDim2.new(1, -56, 0.5, -12)
 clearBtn.BackgroundColor3 = Color3.fromRGB(80, 20, 20)
-clearBtn.Text = "✕"
-clearBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
-clearBtn.Font = Enum.Font.GothamBold
-clearBtn.TextSize = 13
+clearBtn.Text = "✕"; clearBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
+clearBtn.Font = Enum.Font.GothamBold; clearBtn.TextSize = 12
 clearBtn.Parent = bar
-corner(clearBtn, 13)
+corner(clearBtn, 12)
 
-clearBtn.Activated:Connect(function()
+trackConn(clearBtn.Activated:Connect(function()
     box.Text = ""
-end)
+    bar.Visible = false
+end))
+
+trackConn(cmdOpenBtn.Activated:Connect(function()
+    bar.Visible = true
+    box:CaptureFocus()
+end))
 
 local runBtn = Instance.new("TextButton")
-runBtn.Size = UDim2.fromOffset(28, 28)
-runBtn.Position = UDim2.new(1, -32, 0.5, -14)
+runBtn.Size = UDim2.fromOffset(26, 26)
+runBtn.Position = UDim2.new(1, -28, 0.5, -13)
 runBtn.BackgroundColor3 = Color3.fromRGB(200, 20, 20)
-runBtn.Text = "➤"
-runBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-runBtn.Font = Enum.Font.GothamBold
-runBtn.TextSize = 13
+runBtn.Text = "➤"; runBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+runBtn.Font = Enum.Font.GothamBold; runBtn.TextSize = 12
 runBtn.Parent = bar
-corner(runBtn, 14)
+corner(runBtn, 13)
 
-local function updateUIElement(key, state)
-    if Yalat.UIElements[key] then Yalat.UIElements[key](state) end
+trackConn(UserInputService.InputBegan:Connect(function(input, processed)
+    if not processed and input.KeyCode == Enum.KeyCode.Semicolon then
+        bar.Visible = not bar.Visible
+        if bar.Visible then box:CaptureFocus() end
+    end
+end))
+
+local function updateUIElement(key, state, subText)
+    if Yalat.UIElements[key] then Yalat.UIElements[key](state, subText) end
 end
 
--- Command Runner
+-- 9. COMMAND PARSER ENGINE
 function Yalat:Run(text)
-    text = text:match("^%s*(.-)%s*$"):gsub("^;", "")
+    if not text or text == "" then return end
+    
+    text = text:gsub("^%s*;", ""):gsub("%s+$", "")
     local args = {}
     for word in text:gmatch("%S+") do table.insert(args, word) end
     if #args == 0 then return end
 
     local cmd = args[1]:lower()
+
     if cmd == "cmds" or cmd == "help" then 
         main.Visible = not main.Visible
+
     elseif cmd == "god" then 
-        Yalat.State.god = true; updateUIElement("god", true)
+        Yalat.State.god = true
+        updateUIElement("god", true)
+        showNotification("God Mode Enabled", false)
+
     elseif cmd == "ungod" then 
-        Yalat.State.god = false; updateUIElement("god", false)
+        Yalat.State.god = false
+        updateUIElement("god", false)
+        showNotification("God Mode Disabled", false)
+
     elseif cmd == "noclip" then 
-        setNoclip(true); updateUIElement("noclip", true)
+        setNoclip(true)
+        updateUIElement("noclip", true)
+        showNotification("Noclip Enabled", false)
+
     elseif cmd == "clip" then 
-        setNoclip(false); updateUIElement("noclip", false)
+        setNoclip(false)
+        updateUIElement("noclip", false)
+        showNotification("Noclip Disabled", false)
+
     elseif cmd == "fly" then 
-        startFly(tonumber(args[2]) or 50); updateUIElement("fly", true)
+        local val = tonumber(args[2]) or 50
+        if val <= 0 or val > 1000 then
+            showNotification("Fly speed must be 1-1000!", true)
+            return
+        end
+        startFly(val)
+        updateUIElement("fly", true, ";fly " .. tostring(val))
+        showNotification("Fly Enabled (" .. val .. ")", false)
+
     elseif cmd == "unfly" then 
-        stopFly(); updateUIElement("fly", false)
+        stopFly(false)
+        updateUIElement("fly", false)
+        showNotification("Fly Disabled", false)
+
     elseif cmd == "spin" then 
-        Yalat.State.spin = true; updateUIElement("spin", true)
+        Yalat.State.spin = true
+        updateUIElement("spin", true)
+        showNotification("Spin Enabled", false)
+
     elseif cmd == "unspin" then 
-        Yalat.State.spin = false; updateUIElement("spin", false)
+        Yalat.State.spin = false
+        updateUIElement("spin", false)
+        showNotification("Spin Disabled", false)
+
     elseif cmd == "set" then 
-        local r = getRoot(); if r then Yalat.SavedLocation = r.CFrame end
+        local r = getRoot()
+        if r then 
+            Yalat.SavedLocation = r.CFrame 
+            showNotification("Position saved!", false)
+        end
+
     elseif cmd == "tp" then 
-        local r = getRoot(); if r and Yalat.SavedLocation then r.CFrame = Yalat.SavedLocation end
+        local r = getRoot()
+        if r and Yalat.SavedLocation then 
+            r.CFrame = Yalat.SavedLocation
+            showNotification("Teleported to saved location!", false)
+        else
+            showNotification("No location saved!", true)
+        end
+
     elseif cmd == "speed" or cmd == "ws" then 
-        Yalat.State.speed = tonumber(args[2]) or 50; updateUIElement("speed", true)
+        if not args[2] then
+            showNotification("Specify speed value! (e.g. ;speed 50)", true)
+            return
+        end
+        local val = tonumber(args[2])
+        if not val or val < 0 or val > 1000 then
+            showNotification("Invalid speed value (0-1000)!", true)
+            return
+        end
+        Yalat.State.speed = val
+        local hum = getHum()
+        if hum then hum.WalkSpeed = val end
+        updateUIElement("speed", true, ";speed " .. tostring(val))
+        showNotification("WalkSpeed set to " .. val, false)
+
     elseif cmd == "unspeed" then 
-        Yalat.State.speed = 16; updateUIElement("speed", false)
+        Yalat.State.speed = nil
+        local hum = getHum()
+        if hum then hum.WalkSpeed = Yalat.Baseline.walkSpeed end
+        updateUIElement("speed", false)
+        showNotification("Speed reset to default", false)
+
     elseif cmd == "jump" or cmd == "jp" then 
-        Yalat.State.jump = tonumber(args[2]) or 100; updateUIElement("jump", true)
+        if not args[2] then
+            showNotification("Specify jump value! (e.g. ;jump 100)", true)
+            return
+        end
+        local val = tonumber(args[2])
+        if not val or val < 0 or val > 1000 then
+            showNotification("Invalid jump value (0-1000)!", true)
+            return
+        end
+        Yalat.State.jump = val
+        local hum = getHum()
+        if hum then 
+            hum.UseJumpPower = true
+            hum.JumpPower = val 
+        end
+        updateUIElement("jump", true, ";jump " .. tostring(val))
+        showNotification("JumpPower set to " .. val, false)
+
     elseif cmd == "shader" then 
-        enableShader(); updateUIElement("shader", true)
+        enableShader()
+        updateUIElement("shader", true)
+        showNotification("Ultra Shader Enabled", false)
+
     elseif cmd == "unshader" then 
-        disableShader(); updateUIElement("shader", false)
+        disableShader()
+        updateUIElement("shader", false)
+        showNotification("Shader Disabled", false)
+
     elseif cmd == "water" then 
-        enableRealisticWater(); updateUIElement("water", true)
+        enableRealisticWater()
+        updateUIElement("water", true)
+        showNotification("Realistic Water Enabled", false)
+
     elseif cmd == "unwater" or cmd == "resetwater" then 
-        disableRealisticWater(); updateUIElement("water", false)
+        disableRealisticWater()
+        updateUIElement("water", false)
+        showNotification("Water Reset", false)
+
     elseif cmd == "sword" then spawnItem("Sword")
     elseif cmd == "bat" then spawnItem("Bat")
     elseif cmd == "apple" then spawnItem("Apple")
     elseif cmd == "speedcoil" then spawnItem("SpeedCoil")
+    else
+        showNotification("Unknown Command: ;" .. cmd, true)
     end
 end
 
-runBtn.Activated:Connect(function()
-    if box.Text ~= "" then Yalat:Run(box.Text); box.Text = "" end
-end)
+trackConn(runBtn.Activated:Connect(function()
+    if box.Text ~= "" then 
+        Yalat:Run(box.Text)
+        box.Text = "" 
+    end
+end))
 
-box.FocusLost:Connect(function(enterPressed)
-    if enterPressed and box.Text ~= "" then Yalat:Run(box.Text); box.Text = "" end
-end)
+trackConn(box.FocusLost:Connect(function(enterPressed)
+    if enterPressed and box.Text ~= "" then 
+        Yalat:Run(box.Text)
+        box.Text = "" 
+    end
+end))
 
--- Auto Respawn Handler
-LocalPlayer.CharacterAdded:Connect(function(char)
-    task.wait(0.5)
+-- 10. CHARACTER RESPAWN & RUNTIME CYCLES
+local function onCharacterAdded(char)
+    Yalat.OriginalCollisionMap = {}
     local hum = char:WaitForChild("Humanoid", 5)
     if hum then
+        Yalat.Baseline.walkSpeed = hum.WalkSpeed
+        Yalat.Baseline.jumpPower = hum.JumpPower
+        Yalat.Baseline.useJumpPower = hum.UseJumpPower
+
         if Yalat.State.speed then hum.WalkSpeed = Yalat.State.speed end
-        if Yalat.State.jump then hum.UseJumpPower = true; hum.JumpPower = Yalat.State.jump end
+        if Yalat.State.jump then 
+            hum.UseJumpPower = true
+            hum.JumpPower = Yalat.State.jump 
+        end
     end
+
     if Yalat.State.shaderActive then applyHighlight(char) end
     if Yalat.State.noclip then setNoclip(true) end
-end)
+    if Yalat.State.flyActive then startFly(Yalat.State.flySpeed) end
+end
 
--- Heartbeat Loop
-RunService.Heartbeat:Connect(function(dt)
+if LocalPlayer.Character then
+    onCharacterAdded(LocalPlayer.Character)
+end
+
+trackConn(LocalPlayer.CharacterAdded:Connect(onCharacterAdded))
+
+trackConn(RunService.Heartbeat:Connect(function(dt)
     local hum = getHum()
     local root = getRoot()
-    if hum then
-        if Yalat.State.speed and not Yalat.State.holdingSpeedCoil and hum.WalkSpeed ~= Yalat.State.speed then 
-            hum.WalkSpeed = Yalat.State.speed 
-        end
-        if Yalat.State.jump then 
-            hum.UseJumpPower = true; hum.JumpPower = Yalat.State.jump 
-        end
-        if Yalat.State.god and hum.Health < hum.MaxHealth then 
-            hum.Health = hum.MaxHealth 
+    
+    if hum and hum.Health > 0 and Yalat.State.god then
+        if hum.Health < hum.MaxHealth then
+            hum.Health = hum.MaxHealth
         end
     end
-    if root and Yalat.State.spin then 
-        root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(Yalat.State.spinSpeed * dt * 60), 0) 
-    end
-end)
 
--- Stepped Loop for Noclip
-RunService.Stepped:Connect(function()
+    if root and Yalat.State.spin then
+        root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(Yalat.State.spinSpeed * dt * 60), 0)
+    end
+end))
+
+trackConn(RunService.Stepped:Connect(function()
     if Yalat.State.noclip then
         local char = getChar()
         if char then
@@ -790,6 +1142,36 @@ RunService.Stepped:Connect(function()
             end
         end
     end
-end)
+end))
 
-print("KHUSHAL ADMIN PANEL | CHILLI HUB EDITION LOADED")
+-- 11. CENTRAL CLEANUP IMPLEMENTATION
+_G.KhushalAdminCleanup = function()
+    stopFly(false)
+    disableShader()
+    disableRealisticWater()
+    setNoclip(false)
+
+    -- Remove spawned tools
+    for _, tool in ipairs(Yalat.SpawnedTools) do
+        if tool and tool.Parent then
+            tool:Destroy()
+        end
+    end
+    Yalat.SpawnedTools = {}
+
+    for _, conn in ipairs(connections) do
+        if conn and conn.Connected then
+            conn:Disconnect()
+        end
+    end
+    connections = {}
+
+    if gui and gui.Parent then
+        gui:Destroy()
+    end
+
+    _G.KhushalAdminCleanup = nil
+    print("KHUSHAL ADMIN PANEL: Cleaned up previous script instance.")
+end
+
+print("KHUSHAL ADMIN PANEL | CHILLI HUB EDITION EXECUTOR ENGINE LOADED")
