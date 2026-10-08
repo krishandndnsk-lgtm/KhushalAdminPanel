@@ -2,9 +2,7 @@
     Infinity Yalat - Our Happiness by Gemini
     Full In-Game Heavy Admin & Tool Spawner Suite
     
-    New Commands Added:
-      - 'set' : Saves current position & orientation.
-      - 'tp'  : Teleports back to the saved position.
+    Fixed: Shader command freeze bug resolved!
 ]]
 
 local Players = game:GetService("Players")
@@ -16,17 +14,15 @@ local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- Prevent duplication on respawn
 if PlayerGui:FindFirstChild("InfinityYalatGui") then
     PlayerGui.InfinityYalatGui:Destroy()
 end
 
---// Framework Core & State Management
 local Yalat = {
     Commands = {},
     CmdList = {},
     Conns = {},
-    SavedLocation = nil, -- Stores CFrame across respawns
+    SavedLocation = nil,
     State = {
         speed = nil, jump = nil, hip = nil,
         noclip = false, god = false, spin = false, spinSpeed = 10,
@@ -106,7 +102,7 @@ local function startFly(speed)
     return true
 end
 
---// Core Loops for God, Speed, Jump & Noclip
+--// Core Loops
 connect(RunService.Heartbeat, function()
     local hum = getHum()
     local root = getRoot()
@@ -162,8 +158,8 @@ local function disableRealisticWater()
     end
 end
 
---// Shader & Rainbow Glow Engine
-local shaderStorage = { FX = {}, Highlight = nil, BodyVelocity = nil, BodyGyro = nil }
+--// Fixed Shader Engine
+local shaderStorage = { FX = {}, Highlight = nil }
 
 local function enableShader()
     if Yalat.State.shaderActive then return end
@@ -201,22 +197,9 @@ local function enableShader()
         hl.Parent = char
         shaderStorage.Highlight = hl
 
-        local root = getRoot()
         local hum = getHum()
-        if root and hum then
-            hum.PlatformStand = true
-            
-            local bv = Instance.new("BodyVelocity")
-            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-            bv.Velocity = Vector3.new(0, 2, 0)
-            bv.Parent = root
-            shaderStorage.BodyVelocity = bv
-
-            local bg = Instance.new("BodyGyro")
-            bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
-            bg.CFrame = root.CFrame
-            bg.Parent = root
-            shaderStorage.BodyGyro = bg
+        if hum then
+            hum.PlatformStand = false -- Player Freeze fixed!
         end
     end
 end
@@ -234,9 +217,6 @@ local function disableShader()
         shaderStorage.Highlight = nil
     end
 
-    if shaderStorage.BodyVelocity then shaderStorage.BodyVelocity:Destroy() end
-    if shaderStorage.BodyGyro then shaderStorage.BodyGyro:Destroy() end
-    
     local hum = getHum()
     if hum then hum.PlatformStand = false end
 end
@@ -285,14 +265,13 @@ local function spawnItem(itemName)
     tool.Parent = LocalPlayer:WaitForChild("Backpack")
 end
 
---// Main UI Creation
+--// UI Creation
 local gui = Instance.new("ScreenGui")
 gui.Name = "InfinityYalatGui"
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 999
 gui.Parent = PlayerGui
 
--- Command Bar Frame
 local bar = Instance.new("Frame")
 bar.Size = UDim2.new(0, 400, 0, 42)
 bar.AnchorPoint = Vector2.new(0.5, 1)
@@ -342,7 +321,6 @@ local function notify(msg)
     end)
 end
 
--- Button Label: KHUSHAL
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.AnchorPoint = Vector2.new(1, 0)
 toggleBtn.Position = UDim2.new(1, -15, 0, 15)
@@ -355,7 +333,6 @@ toggleBtn.Text = "KHUSHAL"
 toggleBtn.Parent = gui
 corner(toggleBtn, 6)
 
--- Commands Panel
 local panel = Instance.new("Frame")
 panel.Size = UDim2.new(0, 440, 0, 360)
 panel.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -404,7 +381,6 @@ pad.PaddingLeft = UDim.new(0, 12)
 pad.PaddingRight = UDim.new(0, 12)
 pad.Parent = scroll
 
---// Command System Engine
 function Yalat:AddCommand(names, usage, desc, fn)
     local entry = { names = names, usage = usage, desc = desc, fn = fn }
     for _, n in ipairs(names) do
@@ -424,10 +400,8 @@ function Yalat:Run(text)
     if not ok then notify("Error: " .. tostring(err)) end
 end
 
---// Registered Commands (Visible inside 'cmds' menu)
 Yalat:AddCommand({ "cmds", "help" }, "", "Toggle command menu panel", function() panel.Visible = not panel.Visible end)
 
--- Set & TP Commands
 Yalat:AddCommand({ "set" }, "", "Save current position and facing direction", function()
     local root = getRoot()
     if root then
@@ -446,7 +420,7 @@ Yalat:AddCommand({ "tp" }, "", "Teleport to saved location", function()
     end
 end)
 
-Yalat:AddCommand({ "shader" }, "", "Enable realistic lighting, god hover, & rainbow glow", function() enableShader(); notify("Shader & God Mode Activated!") end)
+Yalat:AddCommand({ "shader" }, "", "Enable realistic lighting & rainbow glow", function() enableShader(); notify("Shader Activated!") end)
 Yalat:AddCommand({ "unshader" }, "", "Disable shader effects", function() disableShader(); notify("Shader Disabled") end)
 
 Yalat:AddCommand({ "water" }, "", "Make Terrain Water ultra realistic & crystal clear", function() enableRealisticWater(); notify("Realistic Water Activated!") end)
@@ -467,7 +441,6 @@ Yalat:AddCommand({ "clip" }, "", "Disable wall noclip", function() Yalat.State.n
 Yalat:AddCommand({ "god" }, "", "Enable local health lock", function() Yalat.State.god = true; notify("God mode enabled") end)
 Yalat:AddCommand({ "ungod" }, "", "Disable local health lock", function() Yalat.State.god = false; notify("God mode disabled") end)
 
--- Populate UI List
 for _, entry in ipairs(Yalat.CmdList) do
     local line = entry.names[1] .. (entry.usage ~= "" and (" " .. entry.usage) or "") .. "\n   " .. entry.desc
     local row = Instance.new("TextLabel")
@@ -483,7 +456,6 @@ for _, entry in ipairs(Yalat.CmdList) do
     row.Parent = scroll
 end
 
---// Hidden / Secret Commands
 local function addHiddenCommand(names, fn)
     for _, n in ipairs(names) do
         Yalat.Commands[n:lower()] = { names = names, usage = "", desc = "", fn = fn }
@@ -495,7 +467,6 @@ addHiddenCommand({ "exit", "close", "hide" }, function()
     notify("Commands panel closed")
 end)
 
---// Inputs & Interactivity
 local function toggleBar()
     bar.Visible = not bar.Visible
     if bar.Visible then
