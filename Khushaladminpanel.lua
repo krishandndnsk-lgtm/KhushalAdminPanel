@@ -2,7 +2,10 @@
     Infinity Yalat - Our Happiness by Gemini
     Full In-Game Heavy Admin & Tool Spawner Suite
     
-    Fixed: Shader command freeze bug resolved!
+    New Additions & Bug Fixes:
+      - Added 'spin [speed]' and 'unspin' commands.
+      - Added 'tp set' alias support for saving position.
+      - Fixed shader movement freeze.
 ]]
 
 local Players = game:GetService("Players")
@@ -158,7 +161,7 @@ local function disableRealisticWater()
     end
 end
 
---// Fixed Shader Engine
+--// Shader Engine
 local shaderStorage = { FX = {}, Highlight = nil }
 
 local function enableShader()
@@ -198,9 +201,7 @@ local function enableShader()
         shaderStorage.Highlight = hl
 
         local hum = getHum()
-        if hum then
-            hum.PlatformStand = false -- Player Freeze fixed!
-        end
+        if hum then hum.PlatformStand = false end
     end
 end
 
@@ -394,6 +395,16 @@ function Yalat:Run(text)
     local args = {}
     for word in text:gmatch("%S+") do table.insert(args, word) end
     if #args == 0 then return end
+
+    -- Custom multi-word check for 'tp set'
+    if args[1]:lower() == "tp" and args[2] and args[2]:lower() == "set" then
+        local root = getRoot()
+        if root then
+            Yalat.SavedLocation = root.CFrame
+            return notify("Location Saved via 'tp set'!")
+        end
+    end
+
     local entry = Yalat.Commands[args[1]:lower()]
     if not entry then return notify("Unknown command: " .. args[1]) end
     local ok, err = pcall(entry.fn, args)
@@ -418,6 +429,17 @@ Yalat:AddCommand({ "tp" }, "", "Teleport to saved location", function()
         root.CFrame = Yalat.SavedLocation
         notify("Teleported to saved location!")
     end
+end)
+
+Yalat:AddCommand({ "spin" }, "[speed]", "Spin your character around", function(a)
+    Yalat.State.spinSpeed = tonumber(a[2]) or 10
+    Yalat.State.spin = true
+    notify("Spin enabled!")
+end)
+
+Yalat:AddCommand({ "unspin" }, "", "Stop spinning character", function()
+    Yalat.State.spin = false
+    notify("Spin disabled!")
 end)
 
 Yalat:AddCommand({ "shader" }, "", "Enable realistic lighting & rainbow glow", function() enableShader(); notify("Shader Activated!") end)
