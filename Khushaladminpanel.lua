@@ -6,6 +6,7 @@
       - Mobile Flying UI Buttons (UP/DOWN)
       - Auto Re-apply on Respawn (Speed, Jump, God, Noclip)
       - Perfect Lighting Restore for Shader
+      - Complete and fixed syntax ending
 ]]
 
 local Players = game:GetService("Players")
@@ -573,5 +574,4 @@ local function toggleBar()
     end
 end
 
-connect(UserInputService.InputBegan, function(input, processed)
-    if not processed and input.KeyC
+connect(UserInputService.InputBegan, function(input, proce
