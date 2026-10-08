@@ -3,10 +3,10 @@
     Full In-Game Heavy Admin & Tool Spawner Suite
     
     All Fixes Included:
+      - PC & Mobile Screen Auto-Positioning
       - Mobile Flying UI Buttons (UP/DOWN)
       - Auto Re-apply on Respawn (Speed, Jump, God, Noclip)
       - Perfect Lighting Restore for Shader
-      - Complete and fixed syntax ending
 ]]
 
 local Players = game:GetService("Players")
@@ -302,7 +302,7 @@ end
 local gui = Instance.new("ScreenGui")
 gui.Name = "InfinityYalatGui"
 gui.ResetOnSpawn = false
-gui.DisplayOrder = 999
+gui.DisplayOrder = 9999
 gui.Parent = PlayerGui
 
 -- Mobile Fly Controls
@@ -389,15 +389,17 @@ local function notify(msg)
     end)
 end
 
+-- Fixed Button Positioning for PC & Mobile
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.AnchorPoint = Vector2.new(1, 0)
-toggleBtn.Position = UDim2.new(1, -15, 0, 15)
-toggleBtn.Size = UDim2.fromOffset(90, 32)
+toggleBtn.Position = UDim2.new(1, -20, 0, 60)
+toggleBtn.Size = UDim2.fromOffset(110, 36)
 toggleBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
 toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleBtn.Font = Enum.Font.GothamBold
 toggleBtn.TextSize = 13
 toggleBtn.Text = "KHUSHAL"
+toggleBtn.ZIndex = 10
 toggleBtn.Parent = gui
 corner(toggleBtn, 6)
 
@@ -571,7 +573,4 @@ local function toggleBar()
     if bar.Visible then
         box:CaptureFocus()
         task.spawn(function() task.wait(); box.Text = "" end)
-    end
-end
-
-connect(UserInputService.InputBegan, function(input, proce
+        
