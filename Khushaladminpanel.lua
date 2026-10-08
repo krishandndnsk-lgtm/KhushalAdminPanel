@@ -2,10 +2,10 @@
     Infinity Yalat - Our Happiness by Gemini
     Full In-Game Heavy Admin & Tool Spawner Suite
     
-    New Additions & Bug Fixes:
-      - Added 'spin [speed]' and 'unspin' commands.
-      - Added 'tp set' alias support for saving position.
-      - Fixed shader movement freeze.
+    All Fixes Included:
+      - Mobile Flying UI Buttons (UP/DOWN)
+      - Auto Re-apply on Respawn (Speed, Jump, God, Noclip)
+      - Perfect Lighting Restore for Shader
 ]]
 
 local Players = game:GetService("Players")
@@ -55,6 +55,10 @@ local function corner(inst, r)
     c.Parent = inst
 end
 
+-- Mobile Flying State
+local mobileFlyUp = false
+local mobileFlyDown = false
+
 --// Flight Engine
 local fly = { conn = nil, bv = nil, bg = nil }
 local function stopFly()
@@ -98,8 +102,8 @@ local function startFly(speed)
             fly.bg.CFrame = CFrame.new(root.Position, root.Position + flat)
         end
 
-        if UserInputService:IsKeyDown(Enum.KeyCode.E) or UserInputService:IsKeyDown(Enum.KeyCode.Space) then vel += Vector3.yAxis end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Q) then vel -= Vector3.yAxis end
+        if UserInputService:IsKeyDown(Enum.KeyCode.E) or UserInputService:IsKeyDown(Enum.KeyCode.Space) or mobileFlyUp then vel += Vector3.yAxis end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Q) or mobileFlyDown then vel -= Vector3.yAxis end
         fly.bv.Velocity = vel * speed
     end)
     return true
@@ -124,6 +128,16 @@ connect(RunService.Stepped, function()
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
         end
+    end
+end)
+
+-- Auto Re-apply state on Respawn
+connect(LocalPlayer.CharacterAdded, function(char)
+    task.wait(0.5)
+    local hum = char:WaitForChild("Humanoid", 5)
+    if hum then
+        if Yalat.State.speed then hum.WalkSpeed = Yalat.State.speed end
+        if Yalat.State.jump then hum.UseJumpPower = true; hum.JumpPower = Yalat.State.jump end
     end
 end)
 
@@ -161,12 +175,24 @@ local function disableRealisticWater()
     end
 end
 
---// Shader Engine
+--// Shader Engine with Full Backup
+local originalLighting = {
+    Technology = Lighting.Technology,
+    Brightness = Lighting.Brightness,
+    ClockTime = Lighting.ClockTime,
+    ExposureCompensation = Lighting.ExposureCompensation
+}
+
 local shaderStorage = { FX = {}, Highlight = nil }
 
 local function enableShader()
     if Yalat.State.shaderActive then return end
     Yalat.State.shaderActive = true
+
+    originalLighting.Technology = Lighting.Technology
+    originalLighting.Brightness = Lighting.Brightness
+    originalLighting.ClockTime = Lighting.ClockTime
+    originalLighting.ExposureCompensation = Lighting.ExposureCompensation
 
     Lighting.Technology = Enum.Technology.Future
     Lighting.Brightness = 2.5
@@ -207,6 +233,11 @@ end
 
 local function disableShader()
     Yalat.State.shaderActive = false
+
+    Lighting.Technology = originalLighting.Technology
+    Lighting.Brightness = originalLighting.Brightness
+    Lighting.ClockTime = originalLighting.ClockTime
+    Lighting.ExposureCompensation = originalLighting.ExposureCompensation
 
     for _, fx in ipairs(shaderStorage.FX) do
         if fx and fx.Parent then fx:Destroy() end
@@ -272,6 +303,41 @@ gui.Name = "InfinityYalatGui"
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 999
 gui.Parent = PlayerGui
+
+-- Mobile Fly Controls
+local flyControls = Instance.new("Frame")
+flyControls.Size = UDim2.fromOffset(60, 130)
+flyControls.Position = UDim2.new(1, -75, 0.5, -65)
+flyControls.BackgroundTransparency = 1
+flyControls.Visible = false
+flyControls.Parent = gui
+
+local upBtn = Instance.new("TextButton")
+upBtn.Size = UDim2.fromOffset(50, 50)
+upBtn.Position = UDim2.fromOffset(5, 0)
+upBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+upBtn.Font = Enum.Font.GothamBold
+upBtn.TextSize = 18
+upBtn.Text = "▲"
+upBtn.Parent = flyControls
+corner(upBtn, 25)
+
+local downBtn = Instance.new("TextButton")
+downBtn.Size = UDim2.fromOffset(50, 50)
+downBtn.Position = UDim2.fromOffset(5, 60)
+downBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+downBtn.Font = Enum.Font.GothamBold
+downBtn.TextSize = 18
+downBtn.Text = "▼"
+downBtn.Parent = flyControls
+corner(downBtn, 25)
+
+upBtn.MouseButton1Down:Connect(function() mobileFlyUp = true end)
+upBtn.MouseButton1Up:Connect(function() mobileFlyUp = false end)
+downBtn.MouseButton1Down:Connect(function() mobileFlyDown = true end)
+downBtn.MouseButton1Up:Connect(function() mobileFlyDown = false end)
 
 local bar = Instance.new("Frame")
 bar.Size = UDim2.new(0, 400, 0, 42)
@@ -396,7 +462,6 @@ function Yalat:Run(text)
     for word in text:gmatch("%S+") do table.insert(args, word) end
     if #args == 0 then return end
 
-    -- Custom multi-word check for 'tp set'
     if args[1]:lower() == "tp" and args[2] and args[2]:lower() == "set" then
         local root = getRoot()
         if root then
@@ -456,8 +521,19 @@ Yalat:AddCommand({ "give" }, "[name]", "Give custom tool item", function(a) if a
 Yalat:AddCommand({ "speed", "ws" }, "[num]", "Set WalkSpeed", function(a) Yalat.State.speed = tonumber(a[2]) or 50; notify("Speed set to " .. Yalat.State.speed) end)
 Yalat:AddCommand({ "unspeed" }, "", "Reset WalkSpeed", function() Yalat.State.speed = nil; local h = getHum(); if h then h.WalkSpeed = 16 end; notify("Speed reset") end)
 Yalat:AddCommand({ "jump", "jp" }, "[num]", "Set JumpPower", function(a) Yalat.State.jump = tonumber(a[2]) or 100; notify("JumpPower set to " .. Yalat.State.jump) end)
-Yalat:AddCommand({ "fly" }, "[speed]", "Enable fly mode", function(a) startFly(tonumber(a[2]) or 50); notify("Flight enabled") end)
-Yalat:AddCommand({ "unfly" }, "", "Disable fly mode", function() stopFly(); notify("Flight disabled") end)
+
+Yalat:AddCommand({ "fly" }, "[speed]", "Enable fly mode", function(a)
+    startFly(tonumber(a[2]) or 50)
+    flyControls.Visible = true
+    notify("Flight enabled")
+end)
+
+Yalat:AddCommand({ "unfly" }, "", "Disable fly mode", function()
+    stopFly()
+    flyControls.Visible = false
+    notify("Flight disabled")
+end)
+
 Yalat:AddCommand({ "noclip" }, "", "Enable wall noclip", function() Yalat.State.noclip = true; notify("Noclip enabled") end)
 Yalat:AddCommand({ "clip" }, "", "Disable wall noclip", function() Yalat.State.noclip = false; notify("Noclip disabled") end)
 Yalat:AddCommand({ "god" }, "", "Enable local health lock", function() Yalat.State.god = true; notify("God mode enabled") end)
@@ -498,19 +574,4 @@ local function toggleBar()
 end
 
 connect(UserInputService.InputBegan, function(input, processed)
-    if not processed and input.KeyCode == Enum.KeyCode.Semicolon then
-        toggleBar()
-    end
-end)
-
-connect(box.FocusLost, function(enterPressed)
-    local text = box.Text
-    bar.Visible = false
-    box.Text = ""
-    if enterPressed and text ~= "" then Yalat:Run(text) end
-end)
-
-connect(toggleBtn.Activated, toggleBar)
-connect(closeBtn.Activated, function() panel.Visible = false end)
-
-notify("Khushal Script Loaded — Press ';' or tap KHUSHAL button")
+    if not processed and input.KeyC
