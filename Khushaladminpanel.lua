@@ -1,11 +1,6 @@
 --[[
-    KHUSHAL ADMIN PANEL | CHILLI HUB EDITION (PRO REWRITE)
-    Fixes:
-      - Noclip Parts Memory & Clean Reset
-      - Full UI Button State <-> Command Sync
-      - Modern Physics Fly Engine (LinearVelocity & AlignOrientation)
-      - Non-leaking Tool Handlers & Conflict Solved SpeedCoil
-      - Fixed Cmds List Documentation & Adaptive UI
+    KHUSHAL ADMIN PANEL | CHILLI HUB EDITION
+    UI Overlap & Cramped Sizing Fixes Applied
 ]]
 
 local Players = game:GetService("Players")
@@ -46,7 +41,7 @@ end
 
 local function corner(inst, r)
     local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, r or 8)
+    c.CornerRadius = UDim.new(0, r or 6)
     c.Parent = inst
 end
 
@@ -57,11 +52,9 @@ local function stroke(inst, color, thickness)
     s.Parent = inst
 end
 
---// Mobile Fly Touch Controls State
+-- Mobile Fly Touch Controls
 local mobileFlyUp = false
 local mobileFlyDown = false
-
---// Modern Physics Flight Engine (LinearVelocity & AlignOrientation)
 local flyObj = { conn = nil, lv = nil, ao = nil, attachment = nil }
 
 local function stopFly()
@@ -133,7 +126,7 @@ local function startFly(speed)
     end)
 end
 
---// Noclip Manager with Part Memory
+-- Noclip Manager
 local function setNoclip(enable)
     Yalat.State.noclip = enable
     local char = getChar()
@@ -158,7 +151,7 @@ local function setNoclip(enable)
     end
 end
 
---// Working Tool Spawner Engine
+-- Working Tool Spawner
 local function spawnItem(itemName)
     local char = getChar()
     if not char then return end
@@ -226,7 +219,7 @@ local function spawnItem(itemName)
     tool.Parent = LocalPlayer:WaitForChild("Backpack")
 end
 
---// Dynamic Water Backup System
+-- Water Effects
 local waterBackup = {}
 local function enableRealisticWater()
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
@@ -261,7 +254,7 @@ local function disableRealisticWater()
     end
 end
 
---// Dynamic Shader System
+-- Shader Effects
 local lightingBackup = {}
 local shaderStorage = { FX = {}, Highlight = nil }
 
@@ -327,14 +320,14 @@ local function disableShader()
     end
 end
 
---// Main GUI Setup
+-- GUI Setup
 local gui = Instance.new("ScreenGui")
 gui.Name = "KhushalChilliHubFullUI"
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 9999
 gui.Parent = PlayerGui
 
--- Mobile Fly Touch UI
+-- Mobile Touch Controls
 local flyUI = Instance.new("Frame")
 flyUI.Name = "MobileFlyControls"
 flyUI.Size = UDim2.fromOffset(50, 110)
@@ -369,7 +362,7 @@ upBtn.MouseButton1Up:Connect(function() mobileFlyUp = false end)
 downBtn.MouseButton1Down:Connect(function() mobileFlyDown = true end)
 downBtn.MouseButton1Up:Connect(function() mobileFlyDown = false end)
 
--- Open/Close Floating Button
+-- Floating Open/Close Button
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size = UDim2.fromOffset(90, 32)
 toggleBtn.Position = UDim2.new(1, -100, 0, 40)
@@ -382,10 +375,9 @@ toggleBtn.Parent = gui
 corner(toggleBtn, 6)
 stroke(toggleBtn, Color3.fromRGB(255, 40, 40), 1)
 
--- Main Responsive Frame
+-- Main Responsive Dashboard Panel
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0.85, 0, 0.75, 0)
-main.SizeConstraint = Enum.SizeConstraint.RelativeYY
+main.Size = UDim2.fromOffset(580, 340)
 main.AnchorPoint = Vector2.new(0.5, 0.5)
 main.Position = UDim2.fromScale(0.5, 0.45)
 main.BackgroundColor3 = Color3.fromRGB(15, 10, 12)
@@ -393,10 +385,6 @@ main.Visible = true
 main.Parent = gui
 corner(main, 10)
 stroke(main, Color3.fromRGB(220, 20, 20), 1.5)
-
-local aspect = Instance.new("UIAspectRatioConstraint")
-aspect.AspectRatio = 1.65
-aspect.Parent = main
 
 toggleBtn.Activated:Connect(function() main.Visible = not main.Visible end)
 
@@ -408,12 +396,12 @@ header.Parent = main
 
 local title = Instance.new("TextLabel")
 title.Position = UDim2.fromOffset(12, 6)
-title.Size = UDim2.new(0.8, 0, 1, -12)
+title.Size = UDim2.new(1, -50, 1, -12)
 title.BackgroundTransparency = 1
-title.Text = "KHUSHAL ADMIN PANEL | CHILLI HUB EDITION"
+title.Text = "KHUSHAL ADMIN PANEL | CHILLI HUB"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Font = Enum.Font.GothamBold
-title.TextSize = 13
+title.TextSize = 12
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = header
 
@@ -424,15 +412,15 @@ closeBtn.BackgroundColor3 = Color3.fromRGB(180, 20, 20)
 closeBtn.Text = "X"
 closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 13
+closeBtn.TextSize = 12
 closeBtn.Parent = header
 corner(closeBtn, 4)
 closeBtn.Activated:Connect(function() main.Visible = false end)
 
--- Left Sidebar Tabs
+-- Left Sidebar
 local sidebar = Instance.new("Frame")
-sidebar.Size = UDim2.new(0.2, 0, 1, -48)
-sidebar.Position = UDim2.fromOffset(8, 40)
+sidebar.Size = UDim2.new(0, 110, 1, -46)
+sidebar.Position = UDim2.fromOffset(8, 38)
 sidebar.BackgroundColor3 = Color3.fromRGB(22, 14, 16)
 sidebar.Parent = main
 corner(sidebar, 6)
@@ -454,8 +442,8 @@ local function createTabBtn(name, iconText)
     corner(btn, 4)
 
     local page = Instance.new("ScrollingFrame")
-    page.Size = UDim2.new(0.55, 0, 1, -48)
-    page.Position = UDim2.new(0.22, 0, 0, 40)
+    page.Size = UDim2.new(0, 290, 1, -46)
+    page.Position = UDim2.fromOffset(124, 38)
     page.BackgroundTransparency = 1
     page.ScrollBarThickness = 3
     page.Visible = (#tabBtns == 0)
@@ -477,10 +465,10 @@ local playerPage = createTabBtn("Player", "👤")
 local worldPage = createTabBtn("World", "🌐")
 local toolsPage = createTabBtn("Tools", "🛠️")
 
--- Logo Graphic
+-- Logo Frame
 local logoFrame = Instance.new("Frame")
-logoFrame.Size = UDim2.new(1, -10, 0, 70)
-logoFrame.Position = UDim2.new(0, 5, 1, -75)
+logoFrame.Size = UDim2.new(1, -10, 0, 60)
+logoFrame.Position = UDim2.new(0, 5, 1, -65)
 logoFrame.BackgroundColor3 = Color3.fromRGB(35, 10, 12)
 logoFrame.Parent = sidebar
 corner(logoFrame, 6)
@@ -492,12 +480,12 @@ logoText.BackgroundTransparency = 1
 logoText.Text = "🌶️\nCHILLI HUB"
 logoText.TextColor3 = Color3.fromRGB(255, 50, 50)
 logoText.Font = Enum.Font.GothamBlack
-logoText.TextSize = 12
+logoText.TextSize = 11
 logoText.Parent = logoFrame
 
 local function setupGrid(page)
     local grid = Instance.new("UIGridLayout")
-    grid.CellSize = UDim2.new(0.48, 0, 0, 40)
+    grid.CellSize = UDim2.new(0.48, 0, 0, 42)
     grid.CellPadding = UDim2.new(0.03, 0, 0, 6)
     grid.Parent = page
 end
@@ -515,7 +503,7 @@ local function createOptionBox(parent, nameKey, mainTitle, subTitle, isToggle, c
 
     local t1 = Instance.new("TextLabel")
     t1.Position = UDim2.fromOffset(6, 4)
-    t1.Size = UDim2.new(0.6, 0, 0, 14)
+    t1.Size = UDim2.new(0.65, 0, 0, 14)
     t1.BackgroundTransparency = 1
     t1.Text = mainTitle
     t1.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -526,12 +514,12 @@ local function createOptionBox(parent, nameKey, mainTitle, subTitle, isToggle, c
 
     local t2 = Instance.new("TextLabel")
     t2.Position = UDim2.fromOffset(6, 20)
-    t2.Size = UDim2.new(0.6, 0, 0, 14)
+    t2.Size = UDim2.new(0.65, 0, 0, 14)
     t2.BackgroundTransparency = 1
     t2.Text = "(" .. subTitle .. ")"
     t2.TextColor3 = Color3.fromRGB(160, 160, 160)
     t2.Font = Enum.Font.Code
-    t2.TextSize = 9
+    t2.TextSize = 8
     t2.TextXAlignment = Enum.TextXAlignment.Left
     t2.Parent = box
 
@@ -590,8 +578,8 @@ createOptionBox(toolsPage, "speedcoil", "Give Speed Coil", ";speedcoil", false, 
 
 -- RIGHT PANEL: CMDS LIST
 local rightList = Instance.new("Frame")
-rightList.Size = UDim2.new(0.22, 0, 1, -48)
-rightList.Position = UDim2.new(0.77, 0, 0, 40)
+rightList.Size = UDim2.new(0, 145, 1, -46)
+rightList.Position = UDim2.fromOffset(422, 38)
 rightList.BackgroundColor3 = Color3.fromRGB(22, 14, 16)
 rightList.Parent = main
 corner(rightList, 6)
@@ -604,7 +592,7 @@ cmdTitle.BackgroundTransparency = 1
 cmdTitle.Text = "📋 CMDS LIST"
 cmdTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 cmdTitle.Font = Enum.Font.GothamBold
-cmdTitle.TextSize = 11
+cmdTitle.TextSize = 10
 cmdTitle.TextXAlignment = Enum.TextXAlignment.Left
 cmdTitle.Parent = rightList
 
@@ -626,7 +614,7 @@ local function addCmdListRow(cmd, desc)
     lbl.Text = ";" .. cmd .. "\n- " .. desc
     lbl.TextColor3 = Color3.fromRGB(220, 220, 220)
     lbl.Font = Enum.Font.Code
-    lbl.TextSize = 9
+    lbl.TextSize = 8
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = cmdScroll
 end
@@ -648,12 +636,12 @@ addCmdListRow("sword / speedcoil", "Spawn Tools")
 
 -- BOTTOM FLOATING COMMAND BAR
 local bar = Instance.new("Frame")
-bar.Size = UDim2.new(0.5, 0, 0, 36)
+bar.Size = UDim2.fromOffset(360, 34)
 bar.AnchorPoint = Vector2.new(0.5, 1)
 bar.Position = UDim2.new(0.5, 0, 1, -10)
 bar.BackgroundColor3 = Color3.fromRGB(20, 12, 14)
 bar.Parent = gui
-corner(bar, 18)
+corner(bar, 17)
 stroke(bar, Color3.fromRGB(220, 20, 20), 1)
 
 local box = Instance.new("TextBox")
@@ -671,21 +659,21 @@ box.Text = ""
 box.Parent = bar
 
 local runBtn = Instance.new("TextButton")
-runBtn.Size = UDim2.fromOffset(26, 26)
-runBtn.Position = UDim2.new(1, -30, 0.5, -13)
+runBtn.Size = UDim2.fromOffset(24, 24)
+runBtn.Position = UDim2.new(1, -28, 0.5, -12)
 runBtn.BackgroundColor3 = Color3.fromRGB(200, 20, 20)
 runBtn.Text = "➤"
 runBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 runBtn.Font = Enum.Font.GothamBold
-runBtn.TextSize = 12
+runBtn.TextSize = 11
 runBtn.Parent = bar
-corner(runBtn, 13)
+corner(runBtn, 12)
 
 local function updateUIElement(key, state)
     if Yalat.UIElements[key] then Yalat.UIElements[key](state) end
 end
 
--- Command Runner System with Full State <-> UI Sync
+-- Command Runner
 function Yalat:Run(text)
     text = text:match("^%s*(.-)%s*$"):gsub("^;", "")
     local args = {}
@@ -744,7 +732,7 @@ box.FocusLost:Connect(function(enterPressed)
     if enterPressed and box.Text ~= "" then Yalat:Run(box.Text); box.Text = "" end
 end)
 
--- Auto Re-apply State on Respawn
+-- Auto Respawn Handler
 LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(0.5)
     local hum = char:WaitForChild("Humanoid", 5)
@@ -756,7 +744,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     if Yalat.State.noclip then setNoclip(true) end
 end)
 
--- Core Delta-Time Heartbeat Loop
+-- Heartbeat Loop
 RunService.Heartbeat:Connect(function(dt)
     local hum = getHum()
     local root = getRoot()
@@ -776,7 +764,7 @@ RunService.Heartbeat:Connect(function(dt)
     end
 end)
 
--- Clean Noclip Stepped Loop
+-- Stepped Loop for Noclip
 RunService.Stepped:Connect(function()
     if Yalat.State.noclip then
         local char = getChar()
